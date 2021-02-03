@@ -1,119 +1,99 @@
-// http://127.0.0.1:9001
-// http://localhost:9001
+// https://www.webrtc-experiment.com/
 
-const fs = require('fs');
-const path = require('path');
-const url = require('url');
-var httpServer = require('http');
+var fs = require('fs');
 
-const ioServer = require('socket.io');
-const RTCMultiConnectionServer = require('./node_scripts/index.js');
-
-var PORT = 9002;
-var isUseHTTPs = false;
-
-const jsonPath = {
-    config: 'config.json',
-    logs: 'logs.json'
+// don't forget to use your own keys!
+var options = {
+    // key: fs.readFileSync('fake-keys/privatekey.pem'),
+    // cert: fs.readFileSync('fake-keys/certificate.pem')
+    key: fs.readFileSync('/etc/letsencrypt/live/webrtcweb.com/privkey.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/webrtcweb.com/fullchain.pem')
 };
 
-const BASH_COLORS_HELPER = RTCMultiConnectionServer.BASH_COLORS_HELPER;
-const getValuesFromConfigJson = RTCMultiConnectionServer.getValuesFromConfigJson;
-const getBashParameters = RTCMultiConnectionServer.getBashParameters;
-
-var config = getValuesFromConfigJson(jsonPath);
-config = getBashParameters(config, BASH_COLORS_HELPER);
-
-// if user didn't modifed "PORT" object
-// then read value from "config.json"
-if(PORT === 9001) {
-    PORT = config.port;
-}
-if(isUseHTTPs === false) {
-    isUseHTTPs = config.isUseHTTPs;
-}
-
-function serverHandler(request, response) {
-    // to make sure we always get valid info from json file
-    // even if external codes are overriding it
-    config = getValuesFromConfigJson(jsonPath);
-    config = getBashParameters(config, BASH_COLORS_HELPER);
-
+// HTTPs server
+var app = require('https').createServer(options, function(request, response) {
     response.writeHead(200, {
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/html'
     });
-    response.write('RTCMultiConnection Socket.io Server.\n\n' + 'https://github.com/muaz-khan/RTCMultiConnection-Server\n\n' + 'npm install RTCMultiConnection-Server');
+    var link = 'https://github.com/muaz-khan/WebRTC-Experiment/tree/master/socketio-over-nodejs';
+    response.write('<title>socketio-over-nodejs</title><h1><a href="'+ link + '">socketio-over-nodejs</a></h1><pre>var socket = io.connect("https://webrtcweb.com:9559/");</pre>');
     response.end();
-}
+});
 
-var httpApp;
 
-if (isUseHTTPs) {
-    httpServer = require('https');
+// socket.io goes below
 
-    // See how to use a valid certificate:
-    // https://github.com/muaz-khan/WebRTC-Experiment/issues/62
-    var options = {
-        key: null,
-        cert: null,
-        ca: null
-    };
+var io = require('socket.io').listen(app, {
+    log: true,
+    origins: '*:*'
+});
 
-    var pfx = false;
+io.set('transports', [
+    // 'websocket',
+    'xhr-polling',
+    'jsonp-polling'
+]);
 
-    if (!fs.existsSync(config.sslKey)) {
-        console.log(BASH_COLORS_HELPER.getRedFG(), 'sslKey:\t ' + config.sslKey + ' does not exist.');
-    } else {
-        pfx = config.sslKey.indexOf('.pfx') !== -1;
-        options.key = fs.readFileSync(config.sslKey);
+var channels = {};
+
+io.sockets.on('connection', function (socket) {
+    var initiatorChannel = '';
+    if (!io.isConnected) {
+        io.isConnected = true;
     }
 
-    if (!fs.existsSync(config.sslCert)) {
-        console.log(BASH_COLORS_HELPER.getRedFG(), 'sslCert:\t ' + config.sslCert + ' does not exist.');
-    } else {
-        options.cert = fs.readFileSync(config.sslCert);
-    }
-
-    if (config.sslCabundle) {
-        if (!fs.existsSync(config.sslCabundle)) {
-            console.log(BASH_COLORS_HELPER.getRedFG(), 'sslCabundle:\t ' + config.sslCabundle + ' does not exist.');
+    socket.on('new-channel', function (data) {
+        if (!channels[data.channel]) {
+            initiatorChannel = data.channel;
         }
 
-        options.ca = fs.readFileSync(config.sslCabundle);
-    }
+        channels[data.channel] = data.channel;
+        onNewNamespace(data.channel, data.sender);
+    });
 
-    if (pfx === true) {
-        options = {
-            pfx: sslKey
-        };
-    }
+    socket.on('presence', function (channel) {
+        var isChannelPresent = !! channels[channel];
+        socket.emit('presence', isChannelPresent);
+    });
 
-    httpApp = httpServer.createServer(options, serverHandler);
-} else {
-    httpApp = httpServer.createServer(serverHandler);
-}
-
-RTCMultiConnectionServer.beforeHttpListen(httpApp, config);
-httpApp = httpApp.listen(process.env.PORT || PORT, process.env.IP || "0.0.0.0", function() {
-    RTCMultiConnectionServer.afterHttpListen(httpApp, config);
-});
-
-// --------------------------
-// socket.io codes goes below
-
-ioServer(httpApp).on('connection', function(socket) {
-    RTCMultiConnectionServer.addSocket(socket, config);
-
-    // ----------------------
-    // below code is optional
-
-    const params = socket.handshake.query;
-
-    if (!params.socketCustomEvent) {
-        params.socketCustomEvent = 'custom-message';
-    }
-
-    socket.on(params.socketCustomEvent, function(message) {
-        socket.broadcast.emit(params.socketCustomEvent, message);
+    socket.on('disconnect', function (channel) {
+        if (initiatorChannel) {
+            delete channels[initiatorChannel];
+        }
     });
 });
+
+function onNewNamespace(channel, sender) {
+    io.of('/' + channel).on('connection', function (socket) {
+        var username;
+        if (io.isConnected) {
+            io.isConnected = false;
+            socket.emit('connect', true);
+        }
+
+        socket.on('message', function (data) {
+            if (data.sender == sender) {
+                if(!username) username = data.data.sender;
+                
+                socket.broadcast.emit('message', data.data);
+            }
+        });
+        
+        socket.on('disconnect', function() {
+            if(username) {
+                socket.broadcast.emit('user-left', username);
+                username = null;
+            }
+        });
+    });
+}
+
+// run app
+
+app.listen(process.env.PORT || 9559);
+
+process.on('unhandledRejection', (reason, promise) => {
+  process.exit(1);
+});
+
+console.log('Please open SSL URL: https://localhost:'+(process.env.PORT || 9559)+'/');

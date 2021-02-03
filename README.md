@@ -1,59 +1,109 @@
-<a href="https://www.rtcmulticonnection.org/"><img src="https://i.imgur.com/MFfRBSM.png" /></a>
+# [Socket.io over Node.js](https://github.com/muaz-khan/WebRTC-Experiment/blob/master/socketio-over-nodejs) / [Demo](https://www.webrtc-experiment.com/video-conferencing/) 
 
-## RTCMultiConnection Socket.io Server
+[![npm](https://img.shields.io/npm/v/socketio-over-nodejs.svg)](https://npmjs.org/package/socketio-over-nodejs) [![downloads](https://img.shields.io/npm/dm/socketio-over-nodejs.svg)](https://npmjs.org/package/socketio-over-nodejs)
 
-[![npm](https://img.shields.io/npm/v/rtcmulticonnection-server.svg)](https://npmjs.org/package/rtcmulticonnection-server) [![downloads](https://img.shields.io/npm/dm/rtcmulticonnection-server.svg)](https://npmjs.org/package/rtcmulticonnection-server)
+**socket.io over node.js** for webrtc-signaling!
 
-> Since version `1.3.1`: now `rtcmulticonnection-server` does not creates any HTTP server.
-> 
-> Now you need to use this: `require('rtcmulticonnection-server').addSocket(socket)` where `socket` is your socket.io connection object.
-> 
-> It means  that now you can integrate `rtcmulticonnection-server` inside any socket.io application or expressjsj/angular frameworks.
+<a href="https://nodei.co/npm/socketio-over-nodejs/">
+    <img src="https://nodei.co/npm/socketio-over-nodejs.png">
+</a>
 
-```sh
-npm install rtcmulticonnection-server
+#### `server.js` file
 
-# either
-node server.js --help
+This is the file that I was running on `https://webrtcweb.com:9559/`. I'll recommend to modify and use this file.
 
-# or
-require('rtcmulticonnection-server').addSocket(socket);
+```
+npm install socketio-over-nodejs
 ```
 
-**Installation Guide:**
+# How to use?
 
-* https://github.com/muaz-khan/RTCMultiConnection-Server/wiki
-
-## Free socket.io servers
+In `ui.js` files you can find `openSocket` method; or in all libraries; you can find `openSignalingChannel` method.
 
 ```javascript
-connectin.socketURL = 'https://rtcmulticonnection.herokuapp.com:443/';
-connectin.socketURL = 'https://webrtcweb.com:9002/';
+var SIGNALING_SERVER = 'https://socketio-over-nodejs2.herokuapp.com:443/';
+connection.openSignalingChannel = function(config) {
+   var channel = config.channel || this.channel || 'default-namespace';
+   var sender = Math.round(Math.random() * 9999999999) + 9999999999;
+   
+   io.connect(SIGNALING_SERVER).emit('new-channel', {
+      channel: channel,
+      sender : sender
+   });
+   
+   var socket = io.connect(SIGNALING_SERVER + channel);
+   socket.channel = channel;
+   
+   socket.on('connect', function () {
+      if (config.callback) config.callback(socket);
+   });
+   
+   socket.send = function (message) {
+        socket.emit('message', {
+            sender: sender,
+            data  : message
+        });
+    };
+   
+   socket.on('message', config.onmessage);
+};
 ```
 
-## `config.json`
+`io.connect(URL).emit('new-channel')` starts a new namespace that is used privately or publicly to transmit/exchange appropriate stuff e.g. room-details, participation-requests, SDP, ICE, etc.
 
-* https://github.com/muaz-khan/RTCMultiConnection-Server/wiki/config.json
-
-## Integrate inside nodejs applications
+# `openSocket`
 
 ```javascript
-const ioServer = require('socket.io');
-const RTCMultiConnectionServer = require('rtcmulticonnection-server');
+var config = {
+    openSocket: function (config) {
+        var SIGNALING_SERVER = 'https://socketio-over-nodejs2.herokuapp.com:443/';
 
-ioServer(httpApp).on('connection', function(socket) {
-    RTCMultiConnectionServer.addSocket(socket);
-});
+        config.channel = config.channel || location.href.replace(/\/|:|#|%|\.|\[|\]/g, '');
+        var sender = Math.round(Math.random() * 999999999) + 999999999;
+
+        io.connect(SIGNALING_SERVER).emit('new-channel', {
+            channel: config.channel,
+            sender: sender
+        });
+
+        var socket = io.connect(SIGNALING_SERVER + config.channel);
+        socket.channel = config.channel;
+        socket.on('connect', function () {
+            if (config.callback) config.callback(socket);
+        });
+
+        socket.send = function (message) {
+            socket.emit('message', {
+                sender: sender,
+                data: message
+            });
+        };
+
+        socket.on('message', config.onmessage);
+    }
+};
+
 ```
 
-For more information:
+# Presence Detection
 
-* https://github.com/muaz-khan/RTCMultiConnection-Server/wiki/Integrate-inside-nodejs-applications
+You can detect presence of a room like this:
 
-## Demos
+```javascript
+var SIGNALING_SERVER = 'https://socketio-over-nodejs2.herokuapp.com:443/';
+function testChannelPresence(channel) {
+    var socket = io.connect(SIGNALING_SERVER);
+    socket.on('presence', function (isChannelPresent) {
+        console.log('is channel present', isChannelPresent);
+        if (!isChannelPresent) startNewSession();
+    });
+    socket.emit('presence', channel);
+}
 
-* https://rtcmulticonnection.herokuapp.com/demos/
+// test whether default channel already created or not!
+testChannelPresence('default-channel');
+```
 
-## License
+# License
 
-[RTCMultiConnection Socket.io Server](https://github.com/muaz-khan/RTCMultiConnection-Server) is released under [MIT licence](https://github.com/muaz-khan/RTCMultiConnection/blob/master/LICENSE.md) . Copyright (c) [Muaz Khan](https://MuazKhan.com/).
+[Socket.io over Node.js](https://github.com/muaz-khan/WebRTC-Experiment/blob/master/socketio-over-nodejs) is released under [MIT licence](https://www.webrtc-experiment.com/licence/) . Copyright (c) [Muaz Khan](https://MuazKhan.com).
